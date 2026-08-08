@@ -1,0 +1,14 @@
+[project]
+name = "jwtblaze"
+version = "0.1.0"
+description = "JWT Secret Auditing Tool — HS256 brute-force & RS256→HS256 confusion testing"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [ { name = "srsoumyax11" } ]
+license = { text = "MIT" }
+
+[project.urls]
+Homepage = "https://github.com/srsoumyax11/jwtblaze"
+
+[project.scripts]
+jwtblaze = "jwt_bypass:main"

@@ -1,0 +1,28 @@
+# Git Ignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Env files
+.env
+
+# Pytest
+.pytest_cache/
+
+# IDEs
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Other
+*.log

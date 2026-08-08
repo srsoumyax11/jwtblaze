@@ -1,0 +1,5 @@
+# Sample safe wordlist for local testing (very small, safe values)
+testsecret
+supersecret123
+sample_key
+password123
