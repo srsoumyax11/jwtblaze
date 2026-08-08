@@ -6,6 +6,8 @@ Author  : srsoumyax11
 GitHub  : https://github.com/srsoumyax11
 """
 
+__version__ = "0.1.0"
+
 import argparse
 import sys
 import hmac
@@ -19,13 +21,17 @@ import shutil
 import subprocess
 import platform
 import tempfile
+import logging
+
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
 
 # ============================================================
 #  ASCII BANNER
 # ============================================================
 
 BANNER = r"""
-╔══════════════════════════════════════════════════════════════════════╗
+╔════════════════════════════════════════════════════════════════�[...]
 ║      ____.__      _______________________.__                         ║
 ║     |    /  \    /  \__    ___/\______   \  | _____  ________ ____   ║
 ║     |    \   \/\/   / |    |    |    |  _/  | \__  \ \___   // __ \  ║
@@ -33,12 +39,12 @@ BANNER = r"""
 ║ \________| \__/\  /   |____|    |______  /____(____  /_____ \\___  > ║
 ║                 \/                     \/          \/      \/    \/  ║
 ║                                                                      ║
-╠══════════════════════════════════════════════════════════════════════╣
+╠════════════════════════════════════════════════════════════════�[...]
 ║   [ JWT Secret Auditor ] [ HS256 Brute-force + Alg Confusion ]       ║
 ║   Author  : srsoumyax11                                              ║
 ║   GitHub  : https://github.com/srsoumyax11                           ║
 ║   Engines : GPU (hashcat) → CPU multiprocessing (auto-fallback)      ║
-╚══════════════════════════════════════════════════════════════════════╝
+╚════════════════════════════════════════════════════════════════�[...]
 """
 
 # ============================================================
@@ -69,17 +75,20 @@ def find_hashcat():
 #  JWT HELPERS  (stdlib only — no PyJWT required)
 # ============================================================
 
+
 def b64url_decode(data: str) -> bytes:
     padding = 4 - len(data) % 4
     if padding != 4:
         data += "=" * padding
     return base64.urlsafe_b64decode(data)
 
+
 def parse_token_header(token: str) -> dict | None:
     try:
         return json.loads(b64url_decode(token.split(".")[0]))
     except Exception:
         return None
+
 
 def build_signing_input(token: str):
     """Return (signing_input_bytes, expected_sig_bytes)."""
@@ -91,6 +100,7 @@ def build_signing_input(token: str):
         b64url_decode(parts[2]),
     )
 
+
 def verify_hs256(signing_input: bytes, expected_sig: bytes, secret: str) -> bool:
     sig = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
     return hmac.compare_digest(sig, expected_sig)
@@ -98,6 +108,7 @@ def verify_hs256(signing_input: bytes, expected_sig: bytes, secret: str) -> bool
 # ============================================================
 #  ENGINE 1 — GPU via hashcat (mode 16500 = JWT HS256)
 # ============================================================
+
 
 def crack_gpu_hashcat(hashcat_bin: str, token: str, wordlist_path: str) -> str | None:
     """
@@ -125,7 +136,7 @@ def crack_gpu_hashcat(hashcat_bin: str, token: str, wordlist_path: str) -> str |
             wordlist_path,
         ]
 
-        print(f"[*] hashcat command: {' '.join(cmd)}\n")
+        logger.info("hashcat command: %s", " ".join(cmd))
 
         result = subprocess.run(
             cmd,
@@ -139,7 +150,6 @@ def crack_gpu_hashcat(hashcat_bin: str, token: str, wordlist_path: str) -> str |
                 content = f.read().strip()
             if content:
                 # potfile format:  <hash>:<secret>
-                # JWT potfile:     eyJ...<token>:<secret>
                 parts = content.split(":", 1)
                 if len(parts) == 2:
                     return parts[1]
@@ -152,9 +162,6 @@ def crack_gpu_hashcat(hashcat_bin: str, token: str, wordlist_path: str) -> str |
         )
         if show.stdout.strip():
             line = show.stdout.strip().splitlines()[0]
-            # format: <jwt>:<secret>  but JWT contains colons, so split from last ':'
-            # Actually for JWT: hashcat shows token:secret but token has dots not colons
-            # so we split on first occurrence after the token
             idx = line.rfind(":")
             if idx != -1:
                 return line[idx + 1:]
@@ -162,13 +169,13 @@ def crack_gpu_hashcat(hashcat_bin: str, token: str, wordlist_path: str) -> str |
         return None
 
     finally:
-        # cleanup temp files
         import shutil as _shutil
         _shutil.rmtree(tmp_dir, ignore_errors=True)
 
 # ============================================================
 #  ENGINE 2 — CPU multiprocessing (pure Python, no deps)
 # ============================================================
+
 
 def _cpu_worker(worker_id, token, chunk, found_event, result_queue, progress_queue):
     try:
@@ -202,6 +209,7 @@ def _cpu_worker(worker_id, token, chunk, found_event, result_queue, progress_que
         progress_queue.put(tested)
 
     result_queue.put(("exhausted",))
+
 
 def crack_cpu(token: str, secrets: list[str], num_workers: int) -> str | None:
     total = len(secrets)
@@ -241,12 +249,12 @@ def crack_cpu(token: str, secrets: list[str], num_workers: int) -> str | None:
                     p.terminate()
                 elapsed = time.time() - start_time
                 speed   = tested_total / elapsed if elapsed > 0 else 0
-                print(f"\n\n[+] SUCCESS! Found after {tested_total:,} attempts in "
-                      f"{elapsed:.1f}s  ({speed:,.0f} keys/sec)")
-                print(f"[+] Valid Secret Key: {key}")
+                logger.info("SUCCESS! Found after %s attempts in %.1fs  (%.0f keys/sec)",
+                            f"{tested_total:,}", elapsed, speed)
+                logger.info("Valid Secret Key: %s", key)
                 return key
             elif msg[0] == "error":
-                print(f"\n[-] Error: {msg[1]}")
+                logger.error("Error: %s", msg[1])
                 sys.exit(1)
             elif msg[0] == "exhausted":
                 finished_workers += 1
@@ -261,12 +269,13 @@ def crack_cpu(token: str, secrets: list[str], num_workers: int) -> str | None:
         time.sleep(0.3)
 
     elapsed = time.time() - start_time
-    print(f"\n[-] Exhausted — {total:,} keys tested in {elapsed:.1f}s. No match found.")
+    logger.info("Exhausted — %s keys tested in %.1fs. No match found.", f"{total:,}", elapsed)
     return None
 
 # ============================================================
 #  MAIN ORCHESTRATOR
 # ============================================================
+
 
 def crack_jwt(token: str, wordlist_path: str, force_cpu: bool = False,
               num_workers: int | None = None):
@@ -276,45 +285,45 @@ def crack_jwt(token: str, wordlist_path: str, force_cpu: bool = False,
     # --- parse and display header ---
     header = parse_token_header(token)
     if header is None:
-        print("[-] Error: Token is malformed or cannot be decoded.")
-        sys.exit(1)
+        logger.error("Token is malformed or cannot be decoded.")
+        return False
 
     declared_alg = header.get("alg", "UNKNOWN")
 
-    print(f"  Token Algorithm  : {declared_alg}")
-    print(f"  Platform         : {platform.system()} {platform.machine()}")
+    logger.info("Token Algorithm  : %s", declared_alg)
+    logger.info("Platform         : %s %s", platform.system(), platform.machine())
 
     if declared_alg == "HS256":
-        print(f"  Audit Mode       : Standard HS256 brute-force")
+        logger.info("Audit Mode       : Standard HS256 brute-force")
     else:
-        print(f"  Audit Mode       : Algorithm-confusion  ({declared_alg} → HS256)")
-        print(f"  [!] Testing if server is vulnerable to RS256/ES256 → HS256 confusion")
+        logger.info("Audit Mode       : Algorithm-confusion  (%s → HS256)", declared_alg)
+        logger.warning("Testing if server is vulnerable to RS256/ES256 → HS256 confusion")
 
     # --- detect GPU (hashcat) ---
     hashcat_bin = None if force_cpu else find_hashcat()
 
     if hashcat_bin:
-        print(f"  Engine           : GPU  via hashcat  ({hashcat_bin})")
-        print(f"  Wordlist         : {wordlist_path}")
+        logger.info("Engine           : GPU  via hashcat  (%s)", hashcat_bin)
+        logger.info("Wordlist         : %s", wordlist_path)
         print()
         print("=" * 72)
         key = crack_gpu_hashcat(hashcat_bin, token, wordlist_path)
         if key:
-            print(f"\n[+] SECRET FOUND  →  {key}")
+            logger.info("SECRET FOUND  →  %s", key)
             return True
         else:
-            print("[-] hashcat finished. No match found.")
+            logger.info("hashcat finished. No match found.")
             return False
     else:
         # CPU multiprocessing fallback
         if not force_cpu:
-            print(f"  Engine           : CPU multiprocessing (hashcat not found — install for GPU)")
+            logger.info("Engine           : CPU multiprocessing (hashcat not found — install for GPU)")
         else:
-            print(f"  Engine           : CPU multiprocessing (forced)")
+            logger.info("Engine           : CPU multiprocessing (forced)")
 
         num_workers = num_workers or os.cpu_count() or 1
-        print(f"  CPU Workers      : {num_workers}")
-        print(f"  Wordlist         : {wordlist_path}")
+        logger.info("CPU Workers      : %s", num_workers)
+        logger.info("Wordlist         : %s", wordlist_path)
         print()
         print("=" * 72)
 
@@ -323,10 +332,10 @@ def crack_jwt(token: str, wordlist_path: str, force_cpu: bool = False,
             with open(wordlist_path, "r", encoding="utf-8", errors="ignore") as f:
                 secrets = f.readlines()
         except FileNotFoundError:
-            print(f"[-] Wordlist '{wordlist_path}' not found.")
-            sys.exit(1)
+            logger.error("Wordlist '%s' not found.", wordlist_path)
+            return False
 
-        print(f"[*] Loaded {len(secrets):,} keys  |  ~{len(secrets) // num_workers:,} per worker\n")
+        logger.info("Loaded %s keys  |  ~%s per worker", f"{len(secrets):,}", f"{len(secrets) // num_workers:,}")
 
         key = crack_cpu(token, secrets, num_workers)
         return key is not None
@@ -335,7 +344,9 @@ def crack_jwt(token: str, wordlist_path: str, force_cpu: bool = False,
 #  ENTRY POINT
 # ============================================================
 
-if __name__ == "__main__":
+
+def main(argv=None) -> int:
+    """Console entrypoint. Returns exit code."""
     multiprocessing.freeze_support()  # required for Windows .exe packaging
 
     parser = argparse.ArgumentParser(
@@ -348,8 +359,19 @@ if __name__ == "__main__":
     parser.add_argument("--workers",    type=int,        help="CPU worker count (default: all cores)")
     parser.add_argument("--cpu",        action="store_true",
                         help="Force CPU mode (skip hashcat even if installed)")
+    parser.add_argument("--version", action="store_true", help="Show version and exit")
 
-    args = parser.parse_args()
-    crack_jwt(args.token, args.wordlist,
-              force_cpu=args.cpu,
-              num_workers=args.workers)
+    args = parser.parse_args(argv)
+
+    if args.version:
+        print(__version__)
+        return 0
+
+    success = crack_jwt(args.token, args.wordlist,
+                        force_cpu=args.cpu,
+                        num_workers=args.workers)
+    return 0 if success else 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
